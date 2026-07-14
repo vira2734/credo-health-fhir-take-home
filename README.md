@@ -8,6 +8,27 @@ HAPI FHIR -> Django command -> SQLite -> REST API -> Vue UI
 
 It migrates a limited number of synthetic Patients and their Observations, stores them locally, and displays them in a browser.
 
+## Repository structure
+
+```text
+.
+├── backend/
+│   ├── config/                         # Django settings and URLs
+│   ├── fhir_migration/
+│   │   ├── management/commands/        # migrate_fhir command
+│   │   ├── migrations/                 # Database schema migrations
+│   │   ├── services/                   # FHIR client, mapping, and ingestion
+│   │   ├── tests/                      # Backend tests
+│   │   ├── models.py                   # Patient, Observation, MigrationRun
+│   │   └── serializers.py, views.py    # Read-only REST API
+│   └── manage.py
+├── frontend/
+│   └── src/                            # Vue UI, API client, styles, and tests
+├── docs/screenshots/                   # Verified UI screenshots
+├── Plan.md                             # Decisions and production extensions
+└── README.md                           # Setup and project overview
+```
+
 ## Run it
 
 Backend:
