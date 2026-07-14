@@ -80,3 +80,13 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+FHIR_BASE_URL = os.environ.get("FHIR_BASE_URL", "https://hapi.fhir.org/baseR4")
+FHIR_DEFAULT_PATIENT_LIMIT = int(os.environ.get("FHIR_DEFAULT_PATIENT_LIMIT", "10"))
+FHIR_PATIENT_PAGE_SIZE = int(os.environ.get("FHIR_PATIENT_PAGE_SIZE", "100"))
+FHIR_OBSERVATION_PAGE_SIZE = int(os.environ.get("FHIR_OBSERVATION_PAGE_SIZE", "100"))
+FHIR_CONNECT_TIMEOUT = float(os.environ.get("FHIR_CONNECT_TIMEOUT", "3.05"))
+FHIR_READ_TIMEOUT = float(os.environ.get("FHIR_READ_TIMEOUT", "20"))
+FHIR_MAX_RETRIES = int(os.environ.get("FHIR_MAX_RETRIES", "2"))
+FHIR_BACKOFF_FACTOR = float(os.environ.get("FHIR_BACKOFF_FACTOR", "0.5"))
+FHIR_MAX_BACKOFF = float(os.environ.get("FHIR_MAX_BACKOFF", "30"))
