@@ -93,6 +93,7 @@ def run_fhir_migration(
                     starting_stats,
                 )
             except ValidationError:
+                run.accepted_count -= 1
                 run.rejected_count += 1
                 raise _RunAbort("validation") from None
 
