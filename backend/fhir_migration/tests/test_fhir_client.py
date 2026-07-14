@@ -374,3 +374,80 @@ class FhirClientTests(SimpleTestCase):
             with self.assertRaises(FhirProtocolError):
                 list(client.iter_patients(limit=3))
             self.assertEqual(len(session.calls), 2)
+
+    def test_stats_count_initial_request_retry_and_next_page_request(self):
+        next_url = f"{BASE_URL}?_getpages=stats"
+        session = FakeSession(
+            FakeResponse(status_code=503),
+            FakeResponse(
+                search_bundle(
+                    entry("Patient", "patient-1"),
+                    links=[{"relation": "next", "url": next_url}],
+                )
+            ),
+            FakeResponse(search_bundle(entry("Patient", "patient-2"))),
+        )
+        client = self.make_client(session)
+
+        self.assertEqual(client.stats.request_count, 0)
+        self.assertEqual(client.stats.retry_count, 0)
+        self.assertEqual(len(list(client.iter_patients(limit=2))), 2)
+        self.assertEqual(client.stats.request_count, 3)
+        self.assertEqual(client.stats.retry_count, 1)
+
+    def test_stats_count_exhausted_transport_attempts(self):
+        session = FakeSession(
+            requests.ConnectionError("synthetic failure"),
+            requests.ConnectionError("synthetic failure"),
+            requests.ConnectionError("synthetic failure"),
+        )
+        client = self.make_client(session)
+
+        with self.assertRaises(FhirClientError):
+            list(client.iter_patients(limit=1))
+
+        self.assertEqual(client.stats.request_count, 3)
+        self.assertEqual(client.stats.retry_count, 2)
+
+    def test_stats_count_permanent_failure_without_retry(self):
+        client = self.make_client(FakeSession(FakeResponse(status_code=400)))
+
+        with self.assertRaises(FhirClientError):
+            list(client.iter_patients(limit=1))
+
+        self.assertEqual(client.stats.request_count, 1)
+        self.assertEqual(client.stats.retry_count, 0)
+
+    def test_stats_are_immutable_cumulative_snapshots(self):
+        session = FakeSession(
+            FakeResponse(search_bundle(entry("Patient", "patient-1"))),
+            FakeResponse(search_bundle(entry("Observation", "observation-1"))),
+        )
+        client = self.make_client(session)
+
+        before = client.stats
+        list(client.iter_patients(limit=1))
+        middle = client.stats
+        list(client.iter_observations("patient-1"))
+        after = client.stats
+
+        self.assertEqual((before.request_count, before.retry_count), (0, 0))
+        self.assertEqual((middle.request_count, middle.retry_count), (1, 0))
+        self.assertEqual((after.request_count, after.retry_count), (2, 0))
+        with self.assertRaises(AttributeError):
+            after.request_count = 99
+
+    def test_stats_do_not_count_a_retry_that_never_begins(self):
+        def cancel_before_retry(_delay):
+            raise RuntimeError("synthetic cancellation")
+
+        client = self.make_client(
+            FakeSession(FakeResponse(status_code=503)),
+            sleeper=cancel_before_retry,
+        )
+
+        with self.assertRaises(RuntimeError):
+            list(client.iter_patients(limit=1))
+
+        self.assertEqual(client.stats.request_count, 1)
+        self.assertEqual(client.stats.retry_count, 0)

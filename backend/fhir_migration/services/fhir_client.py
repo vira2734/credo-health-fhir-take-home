@@ -1,6 +1,7 @@
 """Small, bounded FHIR R4 search client for the take-home ingestion path."""
 
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import math
@@ -23,6 +24,12 @@ class FhirClientError(RuntimeError):
 
 class FhirProtocolError(FhirClientError):
     """A successful response that does not match the expected FHIR shape."""
+
+
+@dataclass(frozen=True)
+class FhirClientStats:
+    request_count: int
+    retry_count: int
 
 
 class FhirClient:
@@ -79,6 +86,15 @@ class FhirClient:
         self._sleeper = sleeper
         self._random_fn = random_fn
         self._now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+        self._request_count = 0
+        self._retry_count = 0
+
+    @property
+    def stats(self) -> FhirClientStats:
+        return FhirClientStats(
+            request_count=self._request_count,
+            retry_count=self._retry_count,
+        )
 
     def iter_patients(self, limit: int) -> Iterator[dict[str, Any]]:
         if limit < 1:
@@ -192,6 +208,9 @@ class FhirClient:
         context: str,
     ) -> Any:
         for attempt in range(self._max_retries + 1):
+            self._request_count += 1
+            if attempt > 0:
+                self._retry_count += 1
             try:
                 response = self._session.get(
                     url,
