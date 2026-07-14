@@ -79,3 +79,13 @@ For production, add Bulk FHIR export, PostgreSQL batch upserts, durable checkpoi
 ## AI usage
 
 OpenAI Codex assisted with research, implementation, tests, browser verification, and documentation. I stayed in the loop for scope, decisions, testing, commits, and pushes. See the workflow diagram in [Plan.md](Plan.md).
+
+## Screenshots
+
+**Patient list**
+
+![Migrated Patient list](docs/screenshots/patient-list.jpg)
+
+**Patient details and Observations**
+
+![Selected Patient details and Observations](docs/screenshots/patient-detail.jpg)

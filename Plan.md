@@ -4,12 +4,14 @@
 
 ## Take-home flow
 
-1. `migrate_fhir` fetches a configurable number of Patients.
-2. It fetches each Patient's Observations and follows server-provided pagination links.
-3. Mappers validate the resource identity and preserve important FHIR fields.
-4. Django upserts one Patient and its Observations in a transaction.
-5. The REST API returns a Patient list and Patient details with Observations.
-6. Vue displays the list and the selected Patient's results.
+```mermaid
+flowchart LR
+    S["HAPI FHIR<br/>synthetic R4"] --> E["Bounded fetch<br/>pagination and retry"]
+    E --> M["Safe mapping<br/>preserve choice fields"]
+    M --> D["SQLite upsert<br/>one Patient transaction"]
+    D --> A["Read-only API<br/>list and detail"]
+    A --> V["Vue UI<br/>select Patient"]
+```
 
 This is intentionally a bounded sample. A large production backfill needs a different extraction and storage strategy.
 
