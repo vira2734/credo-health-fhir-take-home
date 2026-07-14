@@ -1,6 +1,6 @@
 # FHIR R4 Patient and Observation Migration Plan
 
-> Status: living plan for the take-home and its production-scale design. Backend milestone 1 (Django/DRF scaffold, SQLite, core models, migration, and model tests) was verified on 2026-07-13 PT; extraction, the read API, and the frontend remain pending. Last source verification: 2026-07-13 PT. Unknown production facts are listed as go-live gates instead of being assumed.
+> Status: living plan for the take-home and its production-scale design. Backend milestones 1 and 2 (Django/DRF scaffold, SQLite, core models/migration, bounded FHIR search client, null-safe transformers, and 39 backend tests) were verified on 2026-07-13 PT. Transactional ingestion, the read API, and the frontend remain pending. Last source verification: 2026-07-13 PT. Unknown production facts are listed as go-live gates instead of being assumed.
 
 ## 1. Migration steps
 
@@ -37,9 +37,13 @@ The live sandbox `https://hapi.fhir.org/baseR4` currently advertises FHIR `4.0.1
 
 Every request has connect/read timeouts. Retry idempotent GET/status/download calls only for transport errors, `429`, `502`, `503`, and `504`, honoring `Retry-After`; otherwise use capped exponential backoff with jitter. Retries are bounded, permanent `4xx` responses fail deliberately, and FHIR `OperationOutcome` details are sanitized before logging. A circuit breaker pauses extraction after sustained source failure.
 
+The implemented take-home client enforces the Patient limit independently from `_count`, accepts search Bundles without `total`, skips warning `OperationOutcome` entries, detects pagination loops, and follows opaque absolute `next` links without reconstructing them. It rejects directly supplied `next` links outside the configured origin, reducing accidental cross-origin forwarding. This is not complete redirect or SSRF protection because Requests follows HTTP redirects by default; production must review redirect and authentication-header behavior and use an explicit allowlist for every approved host. To keep the synchronous local command bounded, even `Retry-After` is capped; production orchestration should persist and honor longer pauses instead of retrying earlier than the source requested.
+
 ## 3. Internal mapping
 
-FHIR fields are optional and repeating, so transformers must be null-safe and must not silently choose clinical meaning. The take-home keeps `raw_resource` JSON for traceability because all data is synthetic. Production raw-resource retention requires an approved encrypted store and retention period.
+FHIR fields are optional and repeating, so transformers must be null-safe and must not silently choose clinical meaning. The take-home keeps the decoded FHIR object in `raw_resource` for traceability because all data is synthetic. It does not retain original response bytes, and normal JSON decoding can lose decimal lexical details such as trailing zeros. Production requiring lexical or audit fidelity must land approved raw bytes or use lossless decimal parsing; any raw-resource retention requires an approved encrypted store and retention period.
+
+The implemented transformer validates resource identity, exact relative Patient linkage, choice invariants, FHIR date precision, and values projected into typed columns. It deliberately does not perform full profile validation; that requires source-specific profiles and is a production go-live gate. Invalid or unrepresentable projected timestamps produce sanitized mapping errors. In particular, FHIR's lexical format permits leap seconds while Python's `datetime` does not, so this working slice rejects them rather than normalizing to an invented instant. Accepted resources preserve their decoded synthetic FHIR object.
 
 | Internal entity | FHIR source | Mapping rule |
 |---|---|---|
@@ -49,7 +53,7 @@ FHIR fields are optional and repeating, so transformers must be null-safe and mu
 | `Observation` identity/link | `Observation.id`, `subject.reference` | Unique on `(source_system, fhir_id)`; resolve only `Patient/{id}` subjects to the Patient foreign key. Quarantine unresolved or out-of-cohort references. |
 | Observation meaning | `status`, `category[]`, `code.coding[]`, `code.text` | Preserve all categories/codings; derive a display label without discarding coding system and code (for example LOINC). |
 | Observation result | `value[x]`, `dataAbsentReason`, `component[]`, `referenceRange[]` | Store `value_type` and typed JSON value, with optional numeric/text/unit columns for querying. Do not assume `valueQuantity`; FHIR R4 permits quantity, concept, string, boolean, integer, range, ratio, sampled data, time, date-time, and period. Preserve components and absent reasons. |
-| Observation time | `effective[x]`, `issued`, `meta.lastUpdated` | Preserve the effective type/value; populate a queryable timestamp only when the source supplies a date-time. Keep issued and source update times separate. |
+| Observation time | `effective[x]`, `issued`, `meta.lastUpdated` | Preserve every effective type/value; populate `effective_at` for a complete timezone-bearing `effectiveDateTime` or representable `effectiveInstant`. Partial date-times remain preserved without a derived timestamp. Keep issued and source update times separate. |
 
 Production uses PostgreSQL, batch upserts, and indexes on Patient source ID plus Observation `(patient_id, effective_at)`, code, and source update time. At-least-once processing plus unique constraints is preferred to a fragile claim of exactly-once delivery.
 
@@ -85,3 +89,7 @@ Before a real run, the source and product owners must confirm: the exact Patient
 | Django 5.2.16 and Django REST Framework 3.17.1 | Reproducible supported dependencies for the locally available Python 3.11 runtime. Upgrade deliberately after running the full test suite. |
 | Preserve `Patient.birth_date` as a nullable FHIR date string | FHIR dates may have year or year-month precision, which a Django `DateField` cannot represent without inventing a day. Validate source syntax in the transformer milestone. |
 | Protect Patients that have Observations | `PROTECT` avoids silently deleting dependent clinical records before source deletion semantics are agreed. The ingestion layer must invoke model validation so Patient and Observation source systems cannot diverge. |
+| Follow only same-origin opaque search pagination links | Preserves server paging state while reducing direct cross-origin forwarding risk. Production must separately restrict redirects, review authentication-header behavior, and use an explicit host allowlist for any CDN or file host. |
+| Validate projections rather than every FHIR profile rule | Keeps the take-home bounded without pretending generic parsing proves clinical conformance. Add agreed profile validation and quarantine before production. |
+| Reject leap-second projections in the take-home | Python `datetime` cannot represent FHIR's permitted `:60`; rejecting with a typed sanitized error avoids inventing time. Revisit with a lossless source-time representation in production. |
+| Copy selected JSON values as well as the raw resource | Prevents caller mutation in this small bounded flow. Production streaming should reduce redundant copies to control memory. |
